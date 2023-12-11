@@ -51,7 +51,7 @@ Tomasulo::Tomasulo(vector<string>& Instructions, unordered_map<int,int>& Memory,
     Reservation_Units["LOAD1"] = {false, "LOAD", -32767, -32767, "", "", -1, -1, -1, -1, -1};
     Reservation_Units["LOAD2"] = {false, "LOAD", -32767, -32767, "", "", -1, -1, -1, -1, -1};
     Reservation_Units["STORE"] = {false, "STORE", -32767, -32767, "", "", -1, -1, -1, -1, -1};
-    Reservation_Units["CALL/RET"] = {false, "", -32767, -32767, "", "", -1, -1, -1, -1, -1};
+    Reservation_Units["CALL/RET"] = {false, "", -1, -1, "", "", -1, -1, -1, -1, -1};
     Reservation_Units["BNE"] = {false, "BNE", -32767, -32767, "", "", -1, -1, -1, -1, -1};
     Reservation_Units["ADD/ADDI1"] = {false, "", -32767, -32767, "", "", -1, -1, -1, -1, -1};
     Reservation_Units["ADD/ADDI2"] = {false, "", -32767, -32767, "", "", -1, -1, -1, -1, -1};
@@ -76,6 +76,9 @@ Tomasulo::Tomasulo(vector<string>& Instructions, unordered_map<int,int>& Memory,
     // initialize the register to reservation unit table
     Register_to_ReservationUnit_Table = vector<string>(8, "");
 
+    issue_stall = false;
+    pc_branch = 10000;
+
 }
 
 
@@ -84,11 +87,10 @@ void Tomasulo::runSimulation(){
 
     std::chrono::milliseconds timespan(delay_between_cycles);
 
-    bool stall = false;
     string curr_res_unit;
     do{
         // check if we can issue the current instruction
-        curr_res_unit = (!stall ? "" : curr_res_unit);  // if stall is true, then we need to issue the same instruction again, so we keep the same reservation unit.
+        curr_res_unit = (!issue_stall ? "" : curr_res_unit);  // if stall is true, then we need to issue the same instruction again, so we keep the same reservation unit.
                                                         // if stall is false, then we need to issue a new instruction, so we set the reservation unit to "" to search for a new one
 
         
@@ -96,6 +98,7 @@ void Tomasulo::runSimulation(){
         string inst_name;
         if(pc < Instructions.size()){
             inst_name = Instructions[pc].name;
+
             for(auto& res_unit: Reservation_Units){
                 if(res_unit.first.find(inst_name) != string::npos && !res_unit.second.busy){
                     curr_res_unit = res_unit.first;
@@ -105,11 +108,12 @@ void Tomasulo::runSimulation(){
                     res_unit.second.op = inst_name;
                     res_unit.second.instruction_number = Instructions_Tracing.size() + 1;
                     res_unit.second.issue_time = cycle;
+                    res_unit.second.pc = pc;
                     break;  // since we are implementing single-issue, we can break here
                 }
             }
 
-            stall = (curr_res_unit == "");  // if stall is true, then we need to issue the same instruction again, so we keep the same reservation unit.
+            issue_stall = (curr_res_unit == "");  // if stall is true, then we need to issue the same instruction again, so we keep the same reservation unit.
                                             // if stall is false, then we need to issue a new instruction, so we set the reservation unit to "" to search for a new one
 
             if(curr_res_unit != ""){
@@ -152,10 +156,10 @@ void Tomasulo::runSimulation(){
                     }
                 }
 
-                if(Instructions[pc].imm_offset != -33){
+                if(Instructions[pc].imm_offset != -10000){
                     // the instruction is not I type
                     // so we can read the immediate value from the instruction
-                    Reservation_Units[curr_res_unit].src2_value = Instructions[pc].imm_offset;
+                    Reservation_Units[curr_res_unit].address = Instructions[pc].imm_offset;
                 }
 
                 // map the destination register to the reservation unit in the register to reservation unit table
@@ -170,10 +174,12 @@ void Tomasulo::runSimulation(){
 
         // check if we can write the result of any instruction to the register file
         write();
-
-        if(inst_name == "BNE"){
-            branches++;
+            
+        if(inst_name == "BNE" || inst_name == "CALL" || inst_name == "RET"){
+            if(inst_name == "BNE")
+                branches++;
             branch_flag = true;
+            pc_branch = pc;
         }
 
         // print some information about the current cycle
@@ -213,11 +219,12 @@ void Tomasulo::runSimulation(){
         "\t\t" << inst.execution_end_cycle << "\t\t" << inst.write_result_cycle << '\n';
     }
     cout << "Total Cycles: " << cycle << '\n';
-    cout << "IPC: " << (Instructions.size())/((cycle+1) * 1.0);
+    cout << "IPC: " << (Instructions.size())/((cycle+1) * 1.0) << '\n';
     if(branches != 0)
         cout << "Mispredictions perentage: " << (mispredictions)/(branches * 1.0);
     else
-        cout << "No Branches encountered\n";
+        cout << "No Branches encountered";
+    cout << '\n';
 
 
 }
@@ -227,11 +234,11 @@ void Tomasulo::execute(string curr_res_unit){
 
     // first we loop over reservation units to change the status of source registers if they are ready
     for(auto& res_unit: Reservation_Units){
-        if(res_unit.second.src1_reservation_unit != "" && Register_to_ReservationUnit_Table[res_unit.second.rB].empty()){
+        if(res_unit.second.src1_reservation_unit != "" && (Register_to_ReservationUnit_Table[res_unit.second.rB].empty() || Register_to_ReservationUnit_Table[res_unit.second.rB] == res_unit.first)){
             res_unit.second.src1_value = Registers[Instructions[res_unit.second.pc].rB];
         }
 
-        if(res_unit.second.src2_reservation_unit != "" && Register_to_ReservationUnit_Table[res_unit.second.rC].empty()){
+        if(res_unit.second.src2_reservation_unit != "" && (Register_to_ReservationUnit_Table[res_unit.second.rC].empty() || Register_to_ReservationUnit_Table[res_unit.second.rC] == res_unit.first)){
             res_unit.second.src2_value = Registers[Instructions[res_unit.second.pc].rC];
         }
     }
@@ -245,12 +252,12 @@ void Tomasulo::execute(string curr_res_unit){
         // 3- the instruction is not issued in the current cycle
         // 4- the instruction is not finished yet
 
-        if(res_unit.second.busy && res_unit.second.src1_value != -32767 && res_unit.second.src2_value != -32767 && res_unit.second.issue_time != cycle && res_unit.second.finish_time == -1){
-            if(!branch_flag || res_unit.second.op == "BNE"){
+        if(res_unit.second.busy && res_unit.second.src1_value != -32767 && (res_unit.second.src2_value != -32767 || res_unit.second.address != -1) && res_unit.second.issue_time != cycle && res_unit.second.finish_time == -1){
+            if(!branch_flag || res_unit.second.op == "BNE" || res_unit.second.op == "CALL" || res_unit.second.op == "RET" || res_unit.second.pc < pc_branch){
                 // the reservation unit is ready to execute
                 // so we can execute it
                 res_unit.second.finish_time = cycle + Cycles_Taken[res_unit.second.op] - 1;
-                if(Instructions[res_unit.second.instruction_number - 1].name == "STORE")
+                if(Instructions[res_unit.second.pc].name == "STORE")
                     res_unit.second.finish_time -= Cycles_Taken[res_unit.second.op] - 2; // store only takes 1 cycle to execute, and the other cycles are used to write to memory
                 
                 // report the cycle number in the instructions tracing vector
@@ -260,29 +267,25 @@ void Tomasulo::execute(string curr_res_unit){
                 bool changedControlFlow = false;
                 // check for bne, call, and ret instructions
                 if(res_unit.first == "BNE"){
-                    branches++;
                     branch_flag = false;
                     if(res_unit.second.src1_value != res_unit.second.src2_value){
-
+                        mispredictions++;
                         // branch taken
                         changedControlFlow = true;
                         pc_changed = true;
-                        pc = res_unit.second.src2_value;
+                        pc = res_unit.second.address;
                         for(auto& ru: Reservation_Units){
                             if(ru.second.issue_time > res_unit.second.issue_time){
                                 flushReservationStation(ru.first);
                             }
                         }
                     }
-                    else{
-                        // branch not taken
-                        mispredictions++;
-                    }
                 }
                 else if(res_unit.first == "CALL/RET"){
+                    branch_flag = false;
                     changedControlFlow = true;
                     pc_changed = true;
-                    if(res_unit.second.src1_value == 1){
+                    if(res_unit.second.op == "RET"){
                         // return instruction
                         pc = Registers[1];  // return address is stored in R1
                     }
@@ -311,7 +314,7 @@ void Tomasulo::execute(string curr_res_unit){
             }
         }
     }
-    if(!pc_changed)
+    if(!pc_changed && !issue_stall)
         pc++;
 }
 
@@ -332,7 +335,7 @@ void Tomasulo::write(){
             // if not, then the instruction is a store instruction, so we can write its result to memory
             // if yes, then the instruction is not a store instruction, so we can write its result to the register file
             // The first condition avoids WAW hazards
-            if(Register_to_ReservationUnit_Table[Instructions[res_unit.second.instruction_number - 1].rA] != res_unit.first && res_unit.second.op != "STORE")
+            if(Register_to_ReservationUnit_Table[Instructions[res_unit.second.pc].rA] != res_unit.first && res_unit.second.op != "STORE")
                 donot_write = true;
             
             if(res_unit.second.op == "STORE")
@@ -344,10 +347,10 @@ void Tomasulo::write(){
             if(!donot_write){
                 switch(res_unit.second.op[0]){
                     case 'L':   // LOAD
-                        Registers[Instructions[res_unit.second.instruction_number - 1].rA] = Memory[res_unit.second.address];
+                        Registers[Instructions[res_unit.second.pc].rA] = Memory[res_unit.second.address + res_unit.second.src1_value];
                         break;
                     case 'S':   // STORE
-                        Memory[res_unit.second.address] = Registers[Instructions[res_unit.second.instruction_number - 1].rA];
+                        Memory[res_unit.second.address + res_unit.second.src2_value] = Registers[Instructions[res_unit.second.pc].rA];
                         break;
                     case 'C':   // CALL/RET - only call instruction writes to the register file
                         if(res_unit.second.src1_value != 1){
@@ -358,17 +361,17 @@ void Tomasulo::write(){
                     case 'B':   // BNE
                         // do nothing
                         break;
-                    case 'I':    // ADD, ADDI, DIV, NAND
-                        Registers[Instructions[res_unit.second.instruction_number - 1].rA] = res_unit.second.src1_value + res_unit.second.src2_value;
-                        break;
                     case 'N':   // NAND
-                        Registers[Instructions[res_unit.second.instruction_number - 1].rA] = ~(res_unit.second.src1_value & res_unit.second.src2_value);
+                        Registers[Instructions[res_unit.second.pc].rA] = ~(res_unit.second.src1_value & res_unit.second.src2_value);
                         break;
                     case 'D':   // DIV
-                        Registers[Instructions[res_unit.second.instruction_number - 1].rA] = res_unit.second.src1_value / res_unit.second.src2_value;
+                        Registers[Instructions[res_unit.second.pc].rA] = res_unit.second.src1_value / res_unit.second.src2_value;
                         break;
                     case 'A':   // ADD
-                        Registers[Instructions[res_unit.second.instruction_number - 1].rA] = res_unit.second.src1_value + res_unit.second.src2_value;
+                        if(res_unit.second.op == "ADDI")
+                            Registers[Instructions[res_unit.second.pc].rA] = res_unit.second.src1_value + res_unit.second.address;
+                        else
+                            Registers[Instructions[res_unit.second.pc].rA] = res_unit.second.src1_value + res_unit.second.src2_value;
                         break;
                     default:
                         cout << "Invalid Instruction While Writing" << endl;

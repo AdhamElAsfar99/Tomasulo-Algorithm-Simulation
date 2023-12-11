@@ -60,6 +60,8 @@ class Tomasulo{
 
     bool store_stall;
     bool branch_flag;
+    bool issue_stall;
+    int pc_branch;
     
     unordered_map<int,int> Memory;
     unordered_map<string, int> Labels_Addresses;
