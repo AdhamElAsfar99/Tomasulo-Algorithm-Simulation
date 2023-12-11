@@ -1,0 +1,37 @@
+=> We worked on the Project collaboratively using github and zoom (when necessarry)
+
+
+December 10, 09:05PM: Finished the parsing instruction function.
+
+December 11, 02:05PM: Wrote the Tomasulo class.
+
+December 11, 02:24PM: Finished the Tomasulo constructor.
+
+December 11, 03:11PM: Finished the runSimulation function.
+
+December 11, 03:44PM: Finished the execute Method function.
+
+December 11, 05:37PM: Finished the write Method function.
+
+December 11, 07:19PM: Finished the Utility Methods (isFinished, flushReservationStation, etc.)
+
+December 11, 09:29PM: Finished the main function.
+
+December 11, 09:57PM: Finished Functions readFile, readDataFile, removeEmptyLines, separateLabels, getLabels_Addresses.
+
+December 11, 10:41PM: Handled RAW, WAW, WAR hazards.
+
+December 11, 11:22PM: Solved some bugs.
+
+December 11, 11:56PM: Fixed register mistakes.
+
+December 12, 12:12AM: Wrote and run all test cases
+
+December 12, 12:18AM: Created and finished the Readme.txt file. 
+
+December 12, 12:23AM: Finished the report for the Project.
+
+
+
+
+
